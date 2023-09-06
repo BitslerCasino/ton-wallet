@@ -1,0 +1,68 @@
+version: '3'
+
+services:
+  ton-node:
+    image: "bitsler/ton:v2023.06"
+    build:
+      context: $TON_NODE_PATH/docker
+      args:
+        TON_TAG: v2023.06 
+    user: "${UID}:${GID}"
+    restart: unless-stopped
+    ports:
+      - 0.0.0.0:19899:19899/udp
+      - 127.0.0.1:19900:1900/tcp
+    environment:
+      IP_ADDR: "51.222.249.133"
+      PORT: "19899"
+    entrypoint:
+      - /bin/bash
+      - /entrypoint.sh
+    volumes:
+      - type: bind
+        source: $TON_NODE_PATH/global-config.json
+        target: /global-config.json
+        read_only: true
+      - type: bind
+        source: $TON_NODE_PATH/entrypoint.sh
+        target: /entrypoint.sh
+        read_only: true
+      - type: bind
+        source: $TON_NODE_PATH/data
+        target: /data
+  ton-console:
+    image: "bitsler/ton:v2023.06"
+    tty: true
+    entrypoint:
+      - validator-engine-console
+      - -k
+      - /keys/client
+      - -p
+      - /keys/server.pub
+      - -a
+      - ton-node:19900
+    volumes:
+      - type: bind
+        source: $TON_NODE_PATH/keys
+        target: /keys
+        read_only: true
+  http-api:
+    image: toncenter/ton-http-api:v2.0.33
+    ports:
+      - 127.0.0.1:19081:19081
+    entrypoint:
+      - gunicorn
+      - -k
+      - uvicorn.workers.UvicornWorker
+      - -w
+      - "1"
+      - --bind
+      - 0.0.0.0:19081
+      - pyTON.main:app
+    environment:
+      TON_API_TONLIB_LITESERVER_CONFIG: /global-config.json
+    volumes:
+      - type: bind
+        source: $TON_NODE_PATH/global-config.json
+        target: /global-config.json
+        read_only: true
