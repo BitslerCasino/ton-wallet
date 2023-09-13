@@ -223,15 +223,18 @@ export class ChainService {
     const value = this.providerService.toTON(
       new Decimal(parseInt(details.in_msg.value)),
     );
+    const toUserFriendly = this.providerService.toInternalAddressFormat(
+      details.in_msg.destination,
+    );
     this.logger.debug(
-      `hash=${tx.hash} lt=${tx.lt} from=${details.in_msg.source} to=${details.in_msg.destination} value=${value}`,
+      `hash=${tx.hash} lt=${tx.lt} from=${details.in_msg.source} to=${details.in_msg.toUserFriendly} value=${value}`,
     );
     const deposit = new Deposit();
     deposit.hash = tx.hash;
     deposit.lt = tx.lt;
     deposit.fromAddress = tx.account;
     deposit.fromUserFriendly = details.in_msg.source;
-    deposit.toUserFriendly = details.in_msg.destination;
+    deposit.toUserFriendly = toUserFriendly;
     deposit.amount = value.toNumber();
     deposit.wcBlockNumber = blockHeader.seqno;
     deposit.shard = blockHeader.shard;

@@ -47,9 +47,13 @@ export class ProviderService {
     const address = await wallet.getAddress();
     return {
       address: address.toString(),
-      userFriendlyAddress: address.toString(true, true, true),
+      userFriendlyAddress: address.toString(true, true, false),
       wallet,
     };
+  }
+
+  toInternalAddressFormat(address: string): string {
+    return new TW.Address(address).toString(true, true, false);
   }
 
   async getTONBalance(address: string): Promise<number> {
@@ -175,7 +179,7 @@ export class ProviderService {
         .mul(new Decimal(10 ** 9))
         .floor()
         .toNumber(),
-      seqno,
+      seqno: seqno || 0,
     });
     const message = await transfer.getQuery();
     const encoded = this.tonweb.utils.bytesToBase64(await message.toBoc(false));
