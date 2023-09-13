@@ -5,9 +5,10 @@ import { Param, ParamName } from '@app/database/entities/param.entity';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { WalletService } from '../wallet/wallet.service';
-import { Deposit } from '@app/database/entities/deposit.entity';
+import { Deposit, DepositStatus } from '@app/database/entities/deposit.entity';
 import Decimal from 'decimal.js';
 import { Balance } from '@app/database/entities/balance.entity';
+import { ExplorerService } from '../provider/explorer.service';
 
 const CRON_FETCH_BLOCKS = 'fetch-blocks';
 const bigNumberFormatter = new Intl.NumberFormat('en-US');
@@ -22,6 +23,7 @@ export class ChainService {
   constructor(
     private readonly schedulerRegistry: SchedulerRegistry,
     private readonly providerService: ProviderService,
+    private readonly explorerService: ExplorerService,
     private readonly walletService: WalletService,
     @InjectRepository(Param)
     private readonly paramRepository: Repository<Param>,
@@ -130,7 +132,6 @@ export class ChainService {
             .flat();
 
           for (const blockHeader of blocks.concat(missedPrevBlocks)) {
-            const { seqno: wcBlockNumber } = blockHeader;
             const transactions =
               await this.providerService.getBlockTransactions(blockHeader);
 
@@ -165,6 +166,33 @@ export class ChainService {
         this.logger.error(error);
       } finally {
         this.state = 'idle';
+      }
+    }
+  }
+
+  @Cron(CronExpression.EVERY_5_SECONDS)
+  async processPendingDeposit() {
+    const pendingDeposits = await this.depositRepository.findBy({
+      status: DepositStatus.PENDING,
+    });
+    for (const pendingDeposit of pendingDeposits) {
+      // Check that tx appears in target wallet
+      // https://docs.ton.org/develop/howto/faq#is-it-possible-to-determine-if-a-transaction-is-100-finalized-is-querying-the-transaction-level-data-sufficient-to-obtain-this-information
+      const tx = await this.providerService.getTransaction(
+        pendingDeposit.toUserFriendly,
+        pendingDeposit.hash,
+        parseInt(pendingDeposit.lt),
+      );
+      if (tx !== null) {
+        this.logger.log(`Transaction ${pendingDeposit.hash} is now confirmed`);
+        await this.depositRepository.update(
+          { hash: pendingDeposit.hash },
+          { status: DepositStatus.CONFIRMED },
+        );
+      } else {
+        this.logger.debug(
+          `Transaction ${pendingDeposit.hash} is not yet confirmed`,
+        );
       }
     }
   }
@@ -208,6 +236,7 @@ export class ChainService {
     deposit.wcBlockNumber = blockHeader.seqno;
     deposit.shard = blockHeader.shard;
     deposit.workchain = blockHeader.workchain;
+    deposit.status = DepositStatus.PENDING;
     await this.depositRepository.insert(deposit);
     await this.balanceRepository.upsert(
       {

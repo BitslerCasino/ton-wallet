@@ -38,17 +38,17 @@ export class NotifyService {
     if (this.state === 'idle') {
       try {
         this.state = 'processing';
-        const pendingDeposits = await this.depositRepository
+        const confirmedDeposits = await this.depositRepository
           .createQueryBuilder('deposit')
           .where('status in (:...statuses)', {
-            statuses: [DepositStatus.NOTIF_ERR, DepositStatus.PENDING],
+            statuses: [DepositStatus.NOTIF_ERR, DepositStatus.CONFIRMED],
           })
           .andWhere('(nextRetry is null or nextRetry <= :now)', {
             now: new Date(),
           })
           .orderBy('createdAt', 'ASC')
           .getMany();
-        for (const deposit of pendingDeposits) {
+        for (const deposit of confirmedDeposits) {
           await this.notify(deposit);
         }
         await this.clearOldDeposits();

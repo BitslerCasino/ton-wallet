@@ -8,6 +8,7 @@ const TW = require('tonweb');
 import config from '@app/config';
 import PQueue from 'p-queue';
 import { WalletV3ContractR2 } from 'tonweb/dist/types/contract/wallet/v3/wallet-v3-contract-r2';
+import { ExplorerService } from './explorer.service';
 
 @Injectable()
 export class ProviderService {
@@ -16,7 +17,7 @@ export class ProviderService {
 
   private downloadBlocksQueue: PQueue = new PQueue({ concurrency: 30 });
 
-  constructor() {
+  constructor(private readonly explorerService: ExplorerService) {
     this.tonweb = new TW(
       new TW.HttpProvider(`${config.TONWEB_PROVIDER_URL}/jsonRPC`),
     );
@@ -133,7 +134,7 @@ export class ProviderService {
   async getTransaction(
     address: string,
     hash: string,
-    lt: number | undefined = undefined,
+    lt: number,
   ): Promise<any> {
     const result = await this.retry(() =>
       this.tonweb.provider.getTransactions(address, 1, lt, hash),
@@ -165,7 +166,7 @@ export class ProviderService {
     wallet: WalletV3ContractR2,
     destinationWalletAddress: string,
     amount: Decimal,
-  ): Promise<any> {
+  ): Promise<{ hash: string; fees: number }> {
     const seqno = await this.retry(() => wallet.methods.seqno().call());
     const transfer = wallet.methods.transfer({
       secretKey: signer.secretKey,
@@ -178,7 +179,32 @@ export class ProviderService {
     });
     const message = await transfer.getQuery();
     const encoded = this.tonweb.utils.bytesToBase64(await message.toBoc(false));
-    return this.tonweb.provider.send('sendBocReturnHash', { boc: encoded });
+    const res = (await this.tonweb.provider.send('sendBocReturnHash', {
+      boc: encoded,
+    })) as any;
+    const { hash: messageHash } = res;
+    let txDetails = null;
+    await this.wait(10);
+    for (let count = 0; count < 10; count++) {
+      txDetails = await this.explorerService.getTxByMessageHash(messageHash);
+      if (txDetails !== null) break;
+      await this.wait(2);
+    }
+    if (txDetails) {
+      // We retrieved tx details: return tx hash + fees
+      return {
+        hash: txDetails.hash,
+        fees: this.toTON(new Decimal(txDetails.fee)).toNumber(),
+      };
+    }
+    this.logger.warn(
+      `No wd details retrieved after 10 tries. messageHash=${messageHash} toAddress=${destinationWalletAddress}`,
+    );
+    // No tx details: return message hash
+    return {
+      hash: messageHash,
+      fees: 0,
+    };
   }
 
   isAddressValid(address: string): boolean {
@@ -206,6 +232,10 @@ export class ProviderService {
       };
       retryInternal();
     });
+  }
+
+  private wait(sec: number) {
+    return new Promise((resolve) => setTimeout(resolve, sec * 1000));
   }
 }
 

@@ -8,6 +8,7 @@ import {
 
 export enum DepositStatus {
   PENDING = 'pending',
+  CONFIRMED = 'confirmed',
   NOTIF_ERR = 'notif-err',
   NOTIF_OK = 'notif-ok',
   NOTIF_FAILED = 'notif-failed',

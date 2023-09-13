@@ -7,6 +7,7 @@ const env = cleanEnv(process.env, {
   API_AUTH_SECRET_KEY: str(),
 
   TONWEB_PROVIDER_URL: url(),
+  EXPLORER_URL: url(),
 
   SQLITE_DATABASE: str(),
   SQLITE_LOG: bool({ default: false }),
