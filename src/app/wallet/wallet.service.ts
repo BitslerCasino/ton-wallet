@@ -16,6 +16,7 @@ import { Address } from '@app/database/entities/address.entity';
 import { Balance } from '@app/database/entities/balance.entity';
 import { Transfer } from '@app/database/entities/transfer.entity';
 import Decimal from 'decimal.js';
+import { ExplorerService } from '../provider/explorer.service';
 
 @Injectable()
 export class WalletService {
@@ -33,6 +34,7 @@ export class WalletService {
     @InjectRepository(Transfer)
     private readonly transferRepository: Repository<Transfer>,
     private readonly providerService: ProviderService,
+    private readonly explorerService: ExplorerService,
   ) {
     this.logger.debug(
       `Master wallet address is: ${masterWallet.userFriendlyAddress}`,
@@ -138,7 +140,7 @@ export class WalletService {
   async withdrawal(
     toAddress: string,
     amount: Decimal,
-  ): Promise<{ hash: string }> {
+  ): Promise<{ hash: string; fees: number }> {
     if (!this.providerService.isAddressValid(toAddress))
       throw new BadRequestException(
         'Invalid destination address: ' + toAddress,
@@ -150,13 +152,12 @@ export class WalletService {
     this.logger.debug(
       `Withdrawal from hot wallet ${userFriendlyAddress} to ${toAddress} for ${amount} TON`,
     );
-    const result = await this.providerService.transfer(
+    const { hash, fees } = await this.providerService.transfer(
       this.masterWallet.keypair,
       wallet,
       toAddress,
       amount,
     );
-    const { hash } = result;
     // Insert transfer
     this.logger.log(`Withdrawal hash: ${hash}`);
     const transfer = new Transfer();
@@ -168,6 +169,7 @@ export class WalletService {
     transfer.hash = hash;
     transfer.amount = amount.toNumber();
     await this.transferRepository.save(transfer);
-    return { hash };
+
+    return { hash, fees };
   }
 }

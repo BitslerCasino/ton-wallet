@@ -43,10 +43,10 @@ export class WalletController {
     const amount = new Decimal(dto.amount);
     if (amount.toNumber() < 0.1)
       throw new BadRequestException('Min amount: 0.1 TON');
-    const { hash } = await this.walletService.withdrawal(dto.to, amount);
+    const { hash, fees } = await this.walletService.withdrawal(dto.to, amount);
     return {
       txid: hash,
-      fees: { value: 0 }, // TODO: return read fees
+      fees: { value: fees },
     };
   }
 

@@ -68,7 +68,7 @@ export class SweepService {
       this.logger.debug('Sweep deposit addresses');
       this.state = 'sweeping';
       try {
-        const totalSweeps = 0;
+        let totalSweeps = 0;
         const balancesToSweep = await this.balanceRepository.find({
           where: {
             needUpdate: false,
@@ -79,6 +79,7 @@ export class SweepService {
         });
         for (const balance of balancesToSweep) {
           await this.walletService.sweepAddress(balance._address);
+          totalSweeps++;
         }
         this.logger.log(
           `${totalSweeps} addresses swept in ${Math.round(
