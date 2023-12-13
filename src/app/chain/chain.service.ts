@@ -131,7 +131,12 @@ export class ChainService {
             })
             .flat();
 
+          const total = blocks.concat(missedPrevBlocks).length;
+          let current = 0;
           for (const blockHeader of blocks.concat(missedPrevBlocks)) {
+            current++;
+            if (current % 100 === 0)
+              this.logger.debug(`Processing block ${current} / ${total}`);
             const transactions =
               await this.providerService.getBlockTransactions(blockHeader);
 

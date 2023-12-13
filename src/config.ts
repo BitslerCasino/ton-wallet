@@ -15,6 +15,10 @@ const env = cleanEnv(process.env, {
   BASE_DERIVATION_PATH: str({ default: "m/44'/607'/0'" }),
 
   NOTIFY_URL: url(),
+
+  BLOCK_CONCURRENCY: num({ default: 20 }),
+  INTERVAL: num({ default: 1000 }),
+  INTERVAL_CAP: num({ default: 60 }),
 });
 
 export default env;
