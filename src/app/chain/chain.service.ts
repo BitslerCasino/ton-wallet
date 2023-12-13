@@ -134,6 +134,11 @@ export class ChainService {
             .flat();
 
           const total = blocks.concat(missedPrevBlocks).length;
+          this.logger.debug(
+            `${total} block header(s) to download in ${
+              latestBlock - (this.lastFetchedMasterchainNumber + 1)
+            } master block(s)...`,
+          );
           let current = 0;
           for (const blockHeader of blocks.concat(missedPrevBlocks)) {
             current++;
