@@ -133,20 +133,35 @@ export class ChainService {
             })
             .flat();
 
-          const total = blocks.concat(missedPrevBlocks).length;
+          const allBlocks = blocks
+            .concat(missedPrevBlocks)
+            .reduce((acc, block) => {
+              if (
+                acc.findIndex(
+                  ({ workchain, shard, seqno, root_hash, file_hash }) =>
+                    block.workchain === workchain &&
+                    block.shard === shard &&
+                    block.seqno == seqno &&
+                    block.root_hash === root_hash &&
+                    block.file_hash === file_hash,
+                ) < 0
+              )
+                acc.push(block);
+              return acc;
+            }, []);
+          const total = allBlocks.length;
           this.logger.debug(
             `${total} block header(s) to download in ${
               latestBlock - (this.lastFetchedMasterchainNumber + 1)
             } master block(s)...`,
           );
           let current = 0;
-          for (const blockHeader of blocks.concat(missedPrevBlocks)) {
+          for (const blockHeader of allBlocks) {
             current++;
             if (current % 100 === 0)
               this.logger.debug(`Processing block ${current} / ${total}`);
             const transactions =
               await this.providerService.getBlockTransactions(blockHeader);
-
             for (const tx of transactions) {
               const isDepositAddress =
                 await this.walletService.isDepositAddress(tx.account);
@@ -239,7 +254,7 @@ export class ChainService {
       details.in_msg.destination,
     );
     this.logger.debug(
-      `hash=${tx.hash} lt=${tx.lt} from=${details.in_msg.source} to=${details.in_msg.toUserFriendly} value=${value}`,
+      `hash=${tx.hash} lt=${tx.lt} from=${details.in_msg.source} to=${toUserFriendly} value=${value}`,
     );
     const deposit = new Deposit();
     deposit.hash = tx.hash;

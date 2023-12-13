@@ -98,9 +98,14 @@ export class ProviderService {
   async getBlockTransactions(blockHeader: any): Promise<any[]> {
     const { workchain, shard, seqno: blockNumber } = blockHeader;
     const result = await this.retry(() =>
-      this.tonweb.provider.getBlockTransactions(workchain, shard, blockNumber),
+      this.tonweb.provider.send('getBlockTransactions', {
+        workchain,
+        shard,
+        seqno: blockNumber,
+        count: 10_000_000,
+      }),
     );
-    return result.transactions;
+    return (result as any).transactions;
   }
 
   async getBlocksRangeByWorkchain(
