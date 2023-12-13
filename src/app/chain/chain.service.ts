@@ -9,6 +9,7 @@ import { Deposit, DepositStatus } from '@app/database/entities/deposit.entity';
 import Decimal from 'decimal.js';
 import { Balance } from '@app/database/entities/balance.entity';
 import { ExplorerService } from '../provider/explorer.service';
+import config from '@app/config';
 
 const CRON_FETCH_BLOCKS = 'fetch-blocks';
 const bigNumberFormatter = new Intl.NumberFormat('en-US');
@@ -83,7 +84,8 @@ export class ChainService {
         this.state = 'syncing';
 
         const lastKnownBlockNumber =
-          await this.providerService.getLastMasterChainBlockNumber();
+          (await this.providerService.getLastMasterChainBlockNumber()) -
+          config.LAST_BLOCK_DELAY;
         const numberOfBlocks =
           lastKnownBlockNumber - this.lastFetchedMasterchainNumber;
         // Only download new blocks if we have at least 1 block to download

@@ -19,6 +19,7 @@ const env = cleanEnv(process.env, {
   BLOCK_CONCURRENCY: num({ default: 20 }),
   INTERVAL: num({ default: 1000 }),
   INTERVAL_CAP: num({ default: 60 }),
+  LAST_BLOCK_DELAY: num({ default: 20 }),
 });
 
 export default env;
