@@ -242,7 +242,6 @@ export class ProviderService {
           .add(func)
           .then(resolve)
           .catch((err) => {
-            console.log(err);
             times++;
             if (times < maxTimes) {
               setTimeout(retryInternal, delay);
