@@ -1,8 +1,12 @@
-import { Deposit, DepositStatus } from '@app/database/entities/deposit.entity';
+import {
+  Deposit,
+  DepositStatus,
+  KYTStatus,
+} from '@app/database/entities/deposit.entity';
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { LessThan, Repository } from 'typeorm';
+import { Repository } from 'typeorm';
 import axios, { AxiosInstance } from 'axios';
 
 import config from '@app/config';
@@ -61,12 +65,18 @@ export class NotifyService {
   }
 
   async notify(deposit: Deposit): Promise<void> {
-    const success = await this.callBackend(deposit);
-    if (success) {
-      this.logger.log(`Notification OK for hash ${deposit.hash}`);
+    const result = await this.callBackend(deposit);
+    if (result.success) {
+      const { kytEnabled } = result;
+      this.logger.log(
+        `Notification OK for hash ${deposit.hash} - kyt enabled ? ${kytEnabled}`,
+      );
       await this.depositRepository.update(
         { hash: deposit.hash },
-        { status: DepositStatus.NOTIF_OK },
+        {
+          status: DepositStatus.NOTIF_OK,
+          kytStatus: kytEnabled ? KYTStatus.PENDING : null,
+        },
       );
     } else {
       if (deposit.retries < 10) {
@@ -101,14 +111,25 @@ export class NotifyService {
   }
 
   private async clearOldDeposits(): Promise<void> {
-    // Remove deposit OK for more than 100 days
-    await this.depositRepository.delete({
-      status: DepositStatus.NOTIF_OK,
-      lastUpdatedAt: LessThan(new Date(Date.now() - 100 * 24 * 60 * 60 * 1000)),
-    });
+    // Remove deposit OK for more than 10 days with KYTStatus NULL or OK or TRANSFERRED_TO_QUARANTINE
+    await this.depositRepository
+      .createQueryBuilder('deposits')
+      .delete()
+      .from(Deposit)
+      .where(
+        'status = :statusNotifOK and lastUpdatedAt <= :10daysAgo and (kytStatus is null or kytStatus in (:...kytToRemove))',
+        {
+          statusNotifOK: DepositStatus.NOTIF_OK,
+          '10daysAgo': new Date(Date.now() - 10 * 24 * 60 * 60 * 1000),
+          kytToRemove: [KYTStatus.OK, KYTStatus.TRANSFERRED_TO_QUARANTINE],
+        },
+      )
+      .execute();
   }
 
-  private async callBackend(deposit: Deposit): Promise<boolean> {
+  private async callBackend(
+    deposit: Deposit,
+  ): Promise<{ success: true; kytEnabled: boolean } | { success: false }> {
     try {
       const result = await this.backend.post(
         '',
@@ -121,7 +142,11 @@ export class NotifyService {
           currency: 'ton',
         }),
       );
-      return result.status === 200;
+      const kytEnabled = result.data?.kytEnabled || false;
+      return {
+        success: result.status === 200,
+        kytEnabled,
+      };
     } catch (error) {
       this.logger.error(
         `An error occured during call to backend for hash ${deposit.hash}: ${error.message}`,
@@ -129,7 +154,9 @@ export class NotifyService {
       this.logger.debug(
         `deposit data = from:${deposit.fromUserFriendly} to:${deposit.toUserFriendly} amount:${deposit.amount}`,
       );
-      return false;
+      return {
+        success: false,
+      };
     }
   }
 }

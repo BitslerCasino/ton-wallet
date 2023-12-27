@@ -1,13 +1,11 @@
 import { Balance } from '@app/database/entities/balance.entity';
 import { Injectable, Logger } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import { Cron } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Address as TWAddress } from 'tonweb/dist/types/utils/address';
 import { LessThan, MoreThan, Not, Repository } from 'typeorm';
-import Decimal from 'decimal.js';
 import { WalletService } from './wallet.service';
-import { ProviderService } from '../provider/provider.service';
 import { Transfer } from '@app/database/entities/transfer.entity';
+import { KYTService } from './kyt.service';
 
 @Injectable()
 export class SweepService {
@@ -20,6 +18,7 @@ export class SweepService {
     @InjectRepository(Transfer)
     private readonly tansferRepository: Repository<Transfer>,
     private readonly walletService: WalletService,
+    private readonly kytService: KYTService,
   ) {}
 
   @Cron(
@@ -78,7 +77,25 @@ export class SweepService {
           relations: ['_address'],
         });
         for (const balance of balancesToSweep) {
-          await this.walletService.sweepAddress(balance._address);
+          // Check address version
+          const addressVersion = await this.walletService.getAddressVersion(
+            balance.address,
+          );
+
+          const { canSweep } =
+            addressVersion < 2 // Do not move to quarantine for wallet version < 2
+              ? { canSweep: true }
+              : await this.kytService.processKYT(balance.address);
+          if (!canSweep) {
+            this.logger.log(
+              `Address ${balance.address} has pending/blocking KYT deposits: wait before sweeping address`,
+            );
+            continue;
+          }
+          await this.walletService.sweepAddress(
+            balance._address,
+            addressVersion,
+          );
           totalSweeps++;
         }
         this.logger.log(

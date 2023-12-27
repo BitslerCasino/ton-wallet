@@ -242,7 +242,7 @@ export class ChainService {
       return false;
     }
     if (details.out_msgs.length > 0) {
-      this.logger.warn(
+      this.logger.debug(
         `Transaction (hash=${tx.hash} lt=${tx.lt}) has out_msgs: reject it`,
       );
       return false;

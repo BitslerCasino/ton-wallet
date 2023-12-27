@@ -1,5 +1,6 @@
 export enum ParamName {
   HOT_MNEMONIC = 'hotMnemonic',
+  QUARANTINE_MNEMONIC = 'quarantineMnemonic',
   DEPOSIT_SEED = 'depositSeed',
   LAST_INDEX = 'lastIndex',
   LAST_MC_BLOCK_NUMBER = 'lastMcBlockNumber',

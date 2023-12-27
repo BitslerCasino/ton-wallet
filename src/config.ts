@@ -20,6 +20,8 @@ const env = cleanEnv(process.env, {
   INTERVAL: num({ default: 1000 }),
   INTERVAL_CAP: num({ default: 60 }),
   LAST_BLOCK_DELAY: num({ default: 20 }),
+
+  GET_KYT_STATUS_URL: url(),
 });
 
 export default env;

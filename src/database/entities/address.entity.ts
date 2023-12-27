@@ -19,6 +19,9 @@ export class Address {
   @Column({ nullable: false, length: 100 })
   path: string;
 
+  @Column({ nullable: false, type: 'int' })
+  version: number;
+
   @CreateDateColumn()
   createdAt: Date;
 

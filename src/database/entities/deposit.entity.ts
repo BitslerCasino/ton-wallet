@@ -12,6 +12,14 @@ export enum DepositStatus {
   NOTIF_ERR = 'notif-err',
   NOTIF_OK = 'notif-ok',
   NOTIF_FAILED = 'notif-failed',
+  QUARANTINE = 'quarantine',
+}
+
+export enum KYTStatus {
+  PENDING = 'pending',
+  OK = 'ok',
+  HAS_ALERT = 'alert',
+  TRANSFERRED_TO_QUARANTINE = 'quarantine',
 }
 
 @Entity()
@@ -28,6 +36,12 @@ export class Deposit {
     default: DepositStatus.PENDING,
   })
   status: DepositStatus;
+
+  @Column({
+    nullable: true,
+    length: 10,
+  })
+  kytStatus: KYTStatus;
 
   @Column({ nullable: false, default: 0 })
   retries: number;

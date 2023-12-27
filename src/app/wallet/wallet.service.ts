@@ -17,6 +17,10 @@ import { Balance } from '@app/database/entities/balance.entity';
 import { Transfer } from '@app/database/entities/transfer.entity';
 import Decimal from 'decimal.js';
 import { ExplorerService } from '../provider/explorer.service';
+import {
+  QUARANTINE_WALLET,
+  QuarantineWallet,
+} from './quarantineWallet.provider';
 
 @Injectable()
 export class WalletService {
@@ -26,6 +30,8 @@ export class WalletService {
   constructor(
     @InjectDataSource() private readonly datasource: DataSource,
     @Inject(MASTER_WALLET) private readonly masterWallet: MasterWallet,
+    @Inject(QUARANTINE_WALLET)
+    private readonly quarantineWallet: QuarantineWallet,
     @Inject(DEPOSIT_SEED) private readonly depositSeed: DepositSeed,
     @InjectRepository(Address)
     private readonly addressRepository: Repository<Address>,
@@ -38,6 +44,9 @@ export class WalletService {
   ) {
     this.logger.debug(
       `Master wallet address is: ${masterWallet.userFriendlyAddress}`,
+    );
+    this.logger.debug(
+      `Quarantine wallet address is: ${quarantineWallet.userFriendlyAddress}`,
     );
   }
 
@@ -70,6 +79,7 @@ export class WalletService {
         const { address, userFriendlyAddress } =
           await this.providerService.getWalletFromKeypair(keyPair);
         const nextAddress = await entityManager.create(Address, {
+          version: 2,
           address: address.toString(),
           userFriendlyAddress,
           path,
@@ -90,7 +100,12 @@ export class WalletService {
     return this.addressRepository.exist({ where: { address } });
   }
 
-  async sweepAddress(address: Address): Promise<void> {
+  async getAddressVersion(address: string): Promise<number> {
+    const wallet = await this.addressRepository.findOne({ where: { address } });
+    return wallet ? wallet.version : 1;
+  }
+
+  async sweepAddress(address: Address, version: number): Promise<void> {
     // First, retrieve the private key
     const node = this.depositSeed.node.derivePath(address.path);
     const keyPair = await this.providerService.getKeypairFromSeed(
@@ -103,11 +118,19 @@ export class WalletService {
       `Sweeping wallet ${address.userFriendlyAddress} to ${destination}`,
     );
     try {
-      const result = await this.providerService.sweep(
-        keyPair,
-        wallet,
-        destination,
-      );
+      // For wallet with version < 2, we just move "all funds" to destination wallet without using a wallet contract
+      let result: { hash: string } | null = null;
+      if (version < 2) {
+        result = await this.providerService.sweep(keyPair, wallet, destination);
+      } else {
+        result = await this.providerService.transfer(
+          keyPair,
+          wallet,
+          destination,
+          new Decimal(0),
+          { fetchFees: false, sendMode: 128 },
+        );
+      }
       if (result && result.hash) {
         // Insert transfer
         this.logger.log(`Sweep hash: ${result.hash}`);
@@ -135,6 +158,86 @@ export class WalletService {
       needUpdate: true,
     });
     await this.balanceRepository.save(balance);
+  }
+
+  async moveToQuarantine(addr: string, total: Decimal): Promise<boolean> {
+    // Load the address
+    const address = await this.addressRepository.findOne({
+      where: { address: addr },
+    });
+    if (!address) {
+      this.logger.error(`Cannot find address in database for ${addr}`);
+      return false;
+    }
+
+    // Then retrieve the private key
+    const node = this.depositSeed.node.derivePath(address.path);
+    const keyPair = await this.providerService.getKeypairFromSeed(
+      node.privateKey,
+    );
+    const { wallet } = await this.providerService.getWalletFromKeypair(keyPair);
+
+    // Get quarantine wallet address
+    if (!this.quarantineWallet.userFriendlyAddress) {
+      this.logger.error('No quarantine wallet');
+      return false;
+    }
+    const destination = this.quarantineWallet.userFriendlyAddress;
+
+    // if amount to transfer is total value of the wallet: just sweep to quarantine
+    const currentBalance = await this.providerService.getTONBalance(addr);
+    //if (currentBalance === total.toNumber()) {
+    try {
+      let result: { hash: string } | null = null;
+      if (currentBalance === total.toNumber()) {
+        // Amount to move is the total value of the balance: use sendMode: 128
+        result = await this.providerService.transfer(
+          keyPair,
+          wallet,
+          destination,
+          new Decimal(0),
+          { fetchFees: false, sendMode: 128 },
+        );
+      } else {
+        result = await this.providerService.transfer(
+          keyPair,
+          wallet,
+          destination,
+          total,
+          { fetchFees: false },
+        );
+      }
+      if (result && result.hash) {
+        // Insert transfer
+        this.logger.log(`Quarantine hash: ${result.hash}`);
+        const transfer = new Transfer();
+        transfer.currency = 'TON';
+        transfer.fromAddress = address.address;
+        transfer.fromUserFriendly = address.userFriendlyAddress;
+        transfer.toUserFriendly = destination;
+        transfer.type = 'internal';
+        transfer.hash = result.hash;
+        transfer.amount = null;
+        await this.transferRepository.save(transfer);
+      } else {
+        this.logger.error(
+          `An error occured during sweep: ${JSON.stringify(result)}`,
+        );
+        throw new Error('An error occured during sweep');
+      }
+    } catch (error) {
+      this.logger.error(`An error occured during sweep: ${error}}`);
+      throw new Error('An error occured during sweep');
+    }
+    //}
+    // Force balance update
+    const balance = this.balanceRepository.create({
+      address: address.address,
+      currency: 'TON',
+      needUpdate: true,
+    });
+    await this.balanceRepository.save(balance);
+    return true;
   }
 
   async withdrawal(

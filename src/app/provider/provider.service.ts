@@ -164,19 +164,22 @@ export class ProviderService {
     wallet: WalletV3ContractR2,
     destinationWalletAddress: string,
   ): Promise<any> {
-    return this.providerQueue.add(async () => {
-      const transfer = wallet.methods.transfer({
-        secretKey: signer.secretKey,
-        toAddress: destinationWalletAddress,
-        amount: 0,
-        seqno: 0,
-        sendMode: 128 + 32, // mode 128 is used for messages that are to carry all the remaining balance; mode 32 means that the current account must be destroyed if its resulting balance is zero;
-      });
+    const seqno = await this.retry(() => wallet.methods.seqno().call());
+    const expireAt = seqno
+      ? undefined
+      : Math.floor((Date.now() + 30_000) / 1_000);
+    const transfer = wallet.methods.transfer({
+      secretKey: signer.secretKey,
+      toAddress: destinationWalletAddress,
+      amount: 0,
+      seqno: seqno || 0,
+      sendMode: 128 + 32, // mode 128 is used for messages that are to carry all the remaining balance; mode 32 means that the current account must be destroyed if its resulting balance is zero;
+      expireAt,
+    });
 
-      const message = await transfer.getQuery();
-      const encoded = this.tonweb.utils.bytesToBase64(
-        await message.toBoc(false),
-      );
+    const message = await transfer.getQuery();
+    const encoded = this.tonweb.utils.bytesToBase64(await message.toBoc(false));
+    return this.providerQueue.add(async () => {
       return this.tonweb.provider.send('sendBocReturnHash', { boc: encoded });
     });
   }
@@ -186,49 +189,82 @@ export class ProviderService {
     wallet: WalletV3ContractR2,
     destinationWalletAddress: string,
     amount: Decimal,
+    options: { fetchFees: boolean; sendMode?: number } = { fetchFees: true },
   ): Promise<{ hash: string; fees: number }> {
-    return this.providerQueue.add(async () => {
-      const seqno = await this.retry(() => wallet.methods.seqno().call());
-      const transfer = wallet.methods.transfer({
-        secretKey: signer.secretKey,
-        toAddress: destinationWalletAddress,
-        amount: amount
-          .mul(new Decimal(10 ** 9))
-          .floor()
-          .toNumber(),
-        seqno: seqno || 0,
-      });
-      const message = await transfer.getQuery();
-      const encoded = this.tonweb.utils.bytesToBase64(
-        await message.toBoc(false),
-      );
-      const res = (await this.tonweb.provider.send('sendBocReturnHash', {
+    const seqno = await this.retry(() => wallet.methods.seqno().call());
+    const transfer = wallet.methods.transfer({
+      secretKey: signer.secretKey,
+      toAddress: destinationWalletAddress,
+      sendMode: options.sendMode,
+      amount: amount
+        .mul(new Decimal(10 ** 9))
+        .floor()
+        .toNumber(),
+      seqno: seqno || 0,
+    });
+    const message = await transfer.getQuery();
+    const encoded = this.tonweb.utils.bytesToBase64(await message.toBoc(false));
+    const res = await this.providerQueue.add(async () =>
+      this.tonweb.provider.send('sendBocReturnHash', {
         boc: encoded,
-      })) as any;
-      const { hash: messageHash } = res;
-      let txDetails = null;
-      await this.wait(10);
-      for (let count = 0; count < 10; count++) {
-        txDetails = await this.explorerService.getTxByMessageHash(messageHash);
-        if (txDetails !== null) break;
-        await this.wait(2);
-      }
-      if (txDetails) {
-        // We retrieved tx details: return tx hash + fees
-        return {
-          hash: txDetails.hash,
-          fees: this.toTON(new Decimal(txDetails.fee)).toNumber(),
-        };
-      }
-      this.logger.warn(
-        `No wd details retrieved after 10 tries. messageHash=${messageHash} toAddress=${destinationWalletAddress}`,
-      );
-      // No tx details: return message hash
+      }),
+    );
+    const { hash: messageHash } = res as any;
+    if (options.fetchFees === false) {
       return {
         hash: messageHash,
         fees: 0,
       };
+    }
+    let txDetails = null;
+    await this.wait(10);
+    for (let count = 0; count < 10; count++) {
+      txDetails = await this.explorerService.getTxByMessageHash(messageHash);
+      if (txDetails !== null) break;
+      await this.wait(2);
+    }
+    if (txDetails) {
+      // We retrieved tx details: return tx hash + fees
+      return {
+        hash: txDetails.hash,
+        fees: this.toTON(new Decimal(txDetails.fee)).toNumber(),
+      };
+    }
+    this.logger.warn(
+      `No wd details retrieved after 10 tries. messageHash=${messageHash} toAddress=${destinationWalletAddress}`,
+    );
+    // No tx details: return message hash
+    return {
+      hash: messageHash,
+      fees: 0,
+    };
+  }
+
+  async estimateFees(
+    signer: SignKeyPair,
+    wallet: WalletV3ContractR2,
+    destinationWalletAddress: string,
+    amount: Decimal,
+  ): Promise<number> {
+    const transfer = wallet.methods.transfer({
+      secretKey: signer.secretKey,
+      toAddress: destinationWalletAddress,
+      amount: amount
+        .mul(new Decimal(10 ** 9))
+        .floor()
+        .toNumber(),
+      seqno: 0,
+      sendMode: 32, // mode 32 means that the current account must be destroyed if its resulting balance is zero;
     });
+    const transferFee = await transfer.estimateFee();
+    return new Decimal(
+      transferFee.source_fees.in_fwd_fee +
+        transferFee.source_fees.storage_fee +
+        transferFee.source_fees.gas_fee +
+        transferFee.source_fees.fwd_fee,
+    )
+      .div(new Decimal(10 ** 9))
+      .toNumber();
   }
 
   isAddressValid(address: string): boolean {

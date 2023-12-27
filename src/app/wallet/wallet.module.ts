@@ -10,18 +10,23 @@ import { Address } from '@app/database/entities/address.entity';
 import { SweepService } from './sweep.service';
 import { Balance } from '@app/database/entities/balance.entity';
 import { Transfer } from '@app/database/entities/transfer.entity';
+import { KYTService } from './kyt.service';
+import { Deposit } from '@app/database/entities/deposit.entity';
+import { quarantineWalletProvider } from './quarantineWallet.provider';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Param, Address, Balance, Transfer]),
+    TypeOrmModule.forFeature([Param, Address, Balance, Transfer, Deposit]),
     ProviderModule,
   ],
   controllers: [WalletController],
   providers: [
     WalletService,
     SweepService,
+    KYTService,
     masterWalletProvider,
     depositSeedProvider,
+    quarantineWalletProvider,
   ],
   exports: [WalletService],
 })
